@@ -1,11 +1,12 @@
 use std::hash::Hash;
 
-use actix_web::{App, error, get, HttpResponse, HttpServer, middleware, web};
+use actix_web::{App, error, get, HttpResponse, HttpServer, middleware, web::{self, Data}};
 use actix_cors::Cors;
 use cairo::{Context, FontSlant, FontWeight, Format, ImageSurface, TextExtents};
 use serde::Deserialize;
 
 use crate::color::{Color, PerceivedLuminance};
+use log;
 
 mod color;
 mod color_serde;
@@ -136,32 +137,37 @@ async fn index(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let log = std::env::var("RUST_LOG").ok();
-    if log.is_none() {
-        std::env::set_var("RUST_LOG", "actix_web=info");
+    let log_env = std::env::var("RUST_LOG").ok();
+    if log_env.is_none() {
+        std::env::set_var("RUST_LOG", "actix_web=info,platzhalter=info");
     }
     pretty_env_logger::init();
 
-    let db = sled::open("platzhalter_db")?;
+    let host = std::env::var("PLATZHALTER_HOST")
+        .unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
+
+    let db = Data::new(sled::open("platzhalter_db")?);
+
+    log::info!("serving at {host}");
 
 
     HttpServer::new(move || {
         let cors = Cors::default()
-                  .allowed_origin("*")
+                  .allow_any_origin()
                   .allowed_methods(vec!["GET"])
                   .max_age(3600);
 
         App::new()
-            .wrap(middleware::Logger::default())
             .wrap(cors)
-            .app_data(db.clone())
+            .wrap(middleware::Logger::default())
+            .app_data(Data::clone(&db))
             .service(
                 web::resource("/favicon.ico")
                     .route(web::get().to(|| async { HttpResponse::NotFound().finish() })),
             )
             .service(index)
     })
-        .bind("127.0.0.1:8080")?
+        .bind(&host)?
         .run()
         .await
 }
