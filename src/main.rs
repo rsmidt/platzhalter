@@ -1,12 +1,12 @@
 use std::hash::Hash;
 
-use actix_web::{App, error, get, HttpResponse, HttpServer, middleware, web::{self, Data}};
 use actix_cors::Cors;
-use cairo::{Context, FontSlant, FontWeight, Format, ImageSurface, TextExtents};
+use actix_web::{App, error, get, HttpResponse, HttpServer, middleware, web::{self, Data}};
+use cairo::{Context, FontSlant, FontWeight, Format, ImageSurface};
+use log;
 use serde::Deserialize;
 
 use crate::color::{Color, PerceivedLuminance};
-use log;
 
 mod color;
 mod color_serde;
@@ -58,7 +58,7 @@ async fn index(
     };
 
     if let Some(bytes) =
-    service::get_from_db(db.get_ref(), &meta).map_err(error::ErrorInternalServerError)?
+        service::get_from_db(db.get_ref(), &meta).map_err(error::ErrorInternalServerError)?
     {
         return Ok(HttpResponse::Ok().content_type("image/png").body(bytes));
     }
@@ -66,12 +66,12 @@ async fn index(
     let surface = ImageSurface::create(Format::ARgb32, length, height)
         .map_err(error::ErrorBadRequest)?;
 
-    let context = Context::new(&surface);
+    let context = Context::new(&surface).unwrap();
     let default_color = Color::from_hex("FFD8C2").unwrap();
     let bg_color = &meta.config.bg.as_ref().unwrap_or(&default_color);
     let bg_color_scaled = bg_color.to_scaled();
     context.set_source_rgb(bg_color_scaled.r, bg_color_scaled.g, bg_color_scaled.b);
-    context.paint();
+    context.paint().unwrap();
 
     if let Some(border_size) = meta.config.br_s {
         let br_color = meta
@@ -84,25 +84,23 @@ async fn index(
         context.rectangle(
             0f64,
             0f64,
-            surface.get_width() as f64,
-            surface.get_height() as f64,
+            surface.width() as f64,
+            surface.height() as f64,
         );
         context.set_line_width(border_size as f64);
-        context.stroke();
+        context.stroke().unwrap();
     }
 
     context.select_font_face("Sans", FontSlant::Normal, FontWeight::Bold);
-    context.set_font_size(surface.get_width() as f64 / dimensions.len() as f64 * 1.2);
+    context.set_font_size(surface.width() as f64 / dimensions.len() as f64 * 1.2);
 
-    let TextExtents {
-        height,
-        width,
-        x_bearing,
-        y_bearing,
-        ..
-    } = context.text_extents(&dimensions);
-    let x = surface.get_width() as f64 / 2.0 - (width / 2.0 + x_bearing);
-    let y = surface.get_height() as f64 / 2.0 - (height / 2.0 + y_bearing);
+    let text_extents = context.text_extents(&dimensions).unwrap();
+    let width = text_extents.width();
+    let height = text_extents.height();
+    let x_bearing = text_extents.x_bearing();
+    let y_bearing = text_extents.y_bearing();
+    let x = surface.width() as f64 / 2.0 - (width / 2.0 + x_bearing);
+    let y = surface.height() as f64 / 2.0 - (height / 2.0 + y_bearing);
     context.move_to(x, y);
     let text_color = match bg_color.perceived_luminance() {
         PerceivedLuminance::Light => Color::from_hex("111827").unwrap(),
@@ -110,21 +108,21 @@ async fn index(
     }
         .to_scaled();
     context.set_source_rgb(text_color.r, text_color.g, text_color.b);
-    context.show_text(&dimensions);
+    context.show_text(&dimensions).unwrap();
 
-    if surface.get_width() >= 200 {
+    if surface.width() >= 200 {
         let border_size: f64 = meta.config.br_s.unwrap_or(0).into();
         let powered_by_text = "powered by rsmidt.dev";
         context.select_font_face("Sans", FontSlant::Normal, FontWeight::Normal);
-        let proposed_font_size = surface.get_width() as f64 / powered_by_text.len() as f64;
+        let proposed_font_size = surface.width() as f64 / powered_by_text.len() as f64;
         context.set_font_size(proposed_font_size.clamp(12.0, 40.0));
-        let powered_by_extents = context.text_extents(powered_by_text);
-        let x = surface.get_width() as f64 - powered_by_extents.width - 5.0 - border_size / 1.5;
+        let powered_by_extents = context.text_extents(powered_by_text).unwrap();
+        let x = surface.width() as f64 - powered_by_extents.width() - 5.0 - border_size / 1.5;
         let y =
-            surface.get_height() as f64 + powered_by_extents.y_bearing / 2.0 - border_size / 1.5;
+            surface.height() as f64 + powered_by_extents.y_bearing() / 2.0 - border_size / 1.5;
         context.move_to(x, y);
         context.set_source_rgba(text_color.r, text_color.g, text_color.b, 0.5);
-        context.show_text(powered_by_text);
+        context.show_text(powered_by_text).unwrap();
     }
 
     let mut bytes: Vec<u8> = Vec::new();
@@ -153,9 +151,9 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         let cors = Cors::default()
-                  .allow_any_origin()
-                  .allowed_methods(vec!["GET"])
-                  .max_age(3600);
+            .allow_any_origin()
+            .allowed_methods(vec!["GET"])
+            .max_age(3600);
 
         App::new()
             .wrap(cors)

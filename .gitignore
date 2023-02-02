@@ -1,3 +1,4 @@
 /target
 /platzhalter_db
 /.idea
+.rustfmt
