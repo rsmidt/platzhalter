@@ -3,6 +3,10 @@ FROM rust:1.63-bullseye as builder
 RUN USER=root cargo new --bin platzhalter
 WORKDIR ./platzhalter
 COPY ./Cargo.toml ./Cargo.toml
+
+RUN apt-get update \
+    && apt-get install -y protobuf-compiler
+
 RUN cargo build --release
 RUN rm src/*.rs
 
