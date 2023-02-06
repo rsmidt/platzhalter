@@ -6,7 +6,7 @@ use actix_web_opentelemetry::{RequestMetricsBuilder, RequestTracing};
 use cairo::{Context, FontSlant, FontWeight, Format, ImageSurface};
 use opentelemetry::{global, KeyValue, sdk::trace as sdktrace};
 use opentelemetry::global::shutdown_tracer_provider;
-use opentelemetry::sdk::export::metrics::aggregation::{cumulative_temporality_selector, delta_temporality_selector};
+use opentelemetry::sdk::export::metrics::aggregation::cumulative_temporality_selector;
 use opentelemetry::sdk::metrics::selectors::simple::inexpensive;
 use opentelemetry::sdk::Resource;
 use opentelemetry_otlp::WithExportConfig;
@@ -47,7 +47,7 @@ pub struct ImageMeta<'a> {
 async fn index(
     params: web::Path<String>,
     web::Query(image_config): web::Query<ImageConfig>,
-    db: web::Data<sled::Db>,
+    db: Data<sled::Db>,
 ) -> error::Result<HttpResponse> {
     let dimensions = params.into_inner();
 
@@ -191,7 +191,7 @@ async fn main() -> std::io::Result<()> {
     let host = std::env::var("PLATZHALTER_HOST")
         .unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
 
-    let db = Data::new(sled::open("platzhalter_db")?);
+    let db = Data::new(open("platzhalter_db")?);
 
     info!("Starting platzhalter running on {host}");
 
@@ -219,7 +219,7 @@ async fn main() -> std::io::Result<()> {
     shutdown_tracer_provider();
 
     info!("Stopping metrics controller");
-    metrics_ctrl.stop(&cx)?;
+    metrics_ctrl.stop(&cx).expect("failed to stop metrics controller");
 
     Ok(())
 }
