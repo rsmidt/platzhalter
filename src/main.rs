@@ -11,6 +11,7 @@ use opentelemetry::sdk::metrics::selectors::simple::inexpensive;
 use opentelemetry::sdk::Resource;
 use opentelemetry_otlp::WithExportConfig;
 use serde::Deserialize;
+use sled::open;
 use tracing;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, Registry};
@@ -172,7 +173,8 @@ async fn main() -> std::io::Result<()> {
     let request_metrics = RequestMetricsBuilder::new().build(meter);
 
     info!("Starting metrics push");
-    opentelemetry_otlp::new_pipeline()
+    let cx = opentelemetry::Context::new();
+    let metrics_ctrl = opentelemetry_otlp::new_pipeline()
         .metrics(inexpensive(), cumulative_temporality_selector(), opentelemetry::runtime::Tokio)
         .with_exporter(
             opentelemetry_otlp::new_exporter()
@@ -180,8 +182,10 @@ async fn main() -> std::io::Result<()> {
                 .with_env()
         )
         .build()
-        .expect("failed to setup up metrics pipeline")
-        .start(&opentelemetry::Context::new(), opentelemetry::runtime::Tokio)
+        .expect("failed to setup up metrics pipeline");
+
+    metrics_ctrl
+        .start(&cx, opentelemetry::runtime::Tokio)
         .expect("failed to start otlp metrics push");
 
     let host = std::env::var("PLATZHALTER_HOST")
@@ -213,6 +217,9 @@ async fn main() -> std::io::Result<()> {
         .await?;
 
     shutdown_tracer_provider();
+
+    info!("Stopping metrics controller");
+    metrics_ctrl.stop(&cx)?;
 
     Ok(())
 }
