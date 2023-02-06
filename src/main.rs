@@ -6,7 +6,7 @@ use actix_web_opentelemetry::{RequestMetricsBuilder, RequestTracing};
 use cairo::{Context, FontSlant, FontWeight, Format, ImageSurface};
 use opentelemetry::{global, KeyValue, sdk::trace as sdktrace};
 use opentelemetry::global::shutdown_tracer_provider;
-use opentelemetry::sdk::export::metrics::aggregation::delta_temporality_selector;
+use opentelemetry::sdk::export::metrics::aggregation::{cumulative_temporality_selector, delta_temporality_selector};
 use opentelemetry::sdk::metrics::selectors::simple::inexpensive;
 use opentelemetry::sdk::Resource;
 use opentelemetry_otlp::WithExportConfig;
@@ -173,7 +173,7 @@ async fn main() -> std::io::Result<()> {
 
     info!("Starting metrics push");
     opentelemetry_otlp::new_pipeline()
-        .metrics(inexpensive(), delta_temporality_selector(), opentelemetry::runtime::Tokio)
+        .metrics(inexpensive(), cumulative_temporality_selector(), opentelemetry::runtime::Tokio)
         .with_exporter(
             opentelemetry_otlp::new_exporter()
                 .tonic()
