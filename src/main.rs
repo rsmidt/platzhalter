@@ -4,10 +4,11 @@ use actix_cors::Cors;
 use actix_web::{App, error, get, HttpResponse, HttpServer, web::{self, Data}};
 use actix_web_opentelemetry::{RequestMetricsBuilder, RequestTracing};
 use cairo::{Context, FontSlant, FontWeight, Format, ImageSurface};
-use opentelemetry::global;
+use opentelemetry::{global, KeyValue, sdk::trace as sdktrace};
 use opentelemetry::global::shutdown_tracer_provider;
 use opentelemetry::sdk::export::metrics::aggregation::delta_temporality_selector;
 use opentelemetry::sdk::metrics::selectors::simple::inexpensive;
+use opentelemetry::sdk::Resource;
 use opentelemetry_otlp::WithExportConfig;
 use serde::Deserialize;
 use tracing;
@@ -153,6 +154,12 @@ async fn main() -> std::io::Result<()> {
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(opentelemetry_otlp::new_exporter().tonic().with_env())
+        .with_trace_config(
+            sdktrace::config().with_resource(Resource::new(vec![KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+                "platzhalter",
+            )])),
+        )
         .install_batch(opentelemetry::runtime::Tokio).expect("failed to set up tracer pipeline");
 
     Registry::default()
