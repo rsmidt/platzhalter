@@ -1,10 +1,20 @@
 use std::hash::Hash;
 
 use actix_cors::Cors;
-use actix_web::{App, error, get, HttpResponse, HttpServer, middleware, web::{self, Data}};
+use actix_web::{App, error, get, HttpResponse, HttpServer, web::{self, Data}};
+use actix_web_opentelemetry::{RequestMetricsBuilder, RequestTracing};
 use cairo::{Context, FontSlant, FontWeight, Format, ImageSurface};
-use log;
+use opentelemetry::global;
+use opentelemetry::global::shutdown_tracer_provider;
+use opentelemetry::sdk::export::metrics::aggregation::delta_temporality_selector;
+use opentelemetry::sdk::metrics::selectors::simple::inexpensive;
+use opentelemetry_otlp::WithExportConfig;
 use serde::Deserialize;
+use tracing;
+use tracing::info;
+use tracing_subscriber::{EnvFilter, Registry};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::color::{Color, PerceivedLuminance};
 
@@ -137,17 +147,42 @@ async fn index(
 async fn main() -> std::io::Result<()> {
     let log_env = std::env::var("RUST_LOG").ok();
     if log_env.is_none() {
-        std::env::set_var("RUST_LOG", "actix_web=info,platzhalter=info");
+        std::env::set_var("RUST_LOG", "actix_web=warn,platzhalter=info");
     }
-    pretty_env_logger::init();
+
+    let tracer = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(opentelemetry_otlp::new_exporter().tonic().with_env())
+        .install_batch(opentelemetry::runtime::Tokio).expect("failed to set up tracer pipeline");
+
+    Registry::default()
+        .with(EnvFilter::try_from_default_env().expect("RUST_LOG not set"))
+        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_opentelemetry::layer().with_tracer(tracer))
+        .init();
+
+    let meter = global::meter("platzhalter");
+    let request_metrics = RequestMetricsBuilder::new().build(meter);
+
+    info!("Starting metrics push");
+    opentelemetry_otlp::new_pipeline()
+        .metrics(inexpensive(), delta_temporality_selector(), opentelemetry::runtime::Tokio)
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_env()
+        )
+        .build()
+        .expect("failed to setup up metrics pipeline")
+        .start(&opentelemetry::Context::new(), opentelemetry::runtime::Tokio)
+        .expect("failed to start otlp metrics push");
 
     let host = std::env::var("PLATZHALTER_HOST")
         .unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
 
     let db = Data::new(sled::open("platzhalter_db")?);
 
-    log::info!("serving at {host}");
-
+    info!("Starting platzhalter running on {host}");
 
     HttpServer::new(move || {
         let cors = Cors::default()
@@ -157,7 +192,8 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .wrap(cors)
-            .wrap(middleware::Logger::default())
+            .wrap(RequestTracing::new())
+            .wrap(request_metrics.clone())
             .app_data(Data::clone(&db))
             .service(
                 web::resource("/favicon.ico")
@@ -167,5 +203,9 @@ async fn main() -> std::io::Result<()> {
     })
         .bind(&host)?
         .run()
-        .await
+        .await?;
+
+    shutdown_tracer_provider();
+
+    Ok(())
 }
