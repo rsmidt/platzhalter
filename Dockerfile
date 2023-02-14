@@ -1,4 +1,4 @@
-FROM rust:1.63-bullseye as builder
+FROM rust:1.64-bullseye as builder
 
 RUN USER=root cargo new --bin platzhalter
 WORKDIR ./platzhalter
